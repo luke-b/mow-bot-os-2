@@ -85,40 +85,77 @@ export const TerrainShaderMaterial = new ShaderMaterial({
   uniforms: {
     cutMap: { value: null },
     worldSize: { value: 80 },
-    baseTexture: { value: null }, // Optional noise texture
   },
   vertexShader: `
     varying vec2 vUv;
     varying vec3 vPos;
+    varying vec3 vColor;
+    
     void main() {
       vUv = uv;
       vPos = position;
+      vColor = color; // From BufferAttribute
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
   `,
   fragmentShader: `
     uniform sampler2D cutMap;
     uniform float worldSize;
+    
     varying vec2 vUv;
     varying vec3 vPos;
+    varying vec3 vColor;
 
     void main() {
-      // Map world position to 0..1 UV for cut map (Consistent with grass shader)
+      // Map world position to 0..1 UV for cut map
       vec2 worldUv = vec2(vPos.x / worldSize + 0.5, vPos.z / worldSize + 0.5);
-      
       float cut = texture2D(cutMap, worldUv).r;
 
-      vec3 soilColor = vec3(0.3, 0.25, 0.2);
-      vec3 grassBaseColor = vec3(0.18, 0.38, 0.15);
-      vec3 cutBaseColor = vec3(0.22, 0.42, 0.18);
+      // vColor mapping:
+      // R: Wetness/Mud (Darker, smoother)
+      // G: Base Ground (Brown/Green mix)
+      // B: Obstruction/Hazard highlight (optional)
+
+      vec3 dryColor = vec3(0.25, 0.3, 0.15); // Grassy soil
+      vec3 mudColor = vec3(0.15, 0.1, 0.05); // Dark mud
+      
+      // Base mix based on "Mud" channel (R)
+      vec3 finalColor = mix(dryColor, mudColor, vColor.r);
 
       // Noise-like variation
       float noise = fract(sin(dot(vPos.xz, vec2(12.9898, 78.233))) * 43758.5453);
-      
-      vec3 finalColor = mix(grassBaseColor, soilColor, 0.1 + noise * 0.1);
-      finalColor = mix(finalColor, cutBaseColor, cut * 0.8); // Lighten path
+      finalColor += (noise - 0.5) * 0.05;
+
+      // Mower path visualization
+      vec3 cutBaseColor = vec3(0.22, 0.42, 0.18);
+      finalColor = mix(finalColor, cutBaseColor, cut * 0.5); 
 
       gl_FragColor = vec4(finalColor, 1.0);
+    }
+  `,
+  vertexColors: true,
+});
+
+export const WaterShaderMaterial = new ShaderMaterial({
+  uniforms: {
+    time: { value: 0 },
+  },
+  transparent: true,
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform float time;
+    varying vec2 vUv;
+    void main() {
+      // Simple animated blue
+      float alpha = 0.6;
+      vec3 color = vec3(0.0, 0.3, 0.5);
+      gl_FragColor = vec4(color, alpha);
     }
   `
 });

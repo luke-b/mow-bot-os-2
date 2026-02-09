@@ -1,7 +1,6 @@
 import React, { useRef, useEffect } from 'react';
-import { useStore } from '../store';
-import { Canvas } from '@react-three/fiber';
-import { useTexture } from '@react-three/drei';
+import { useStore, HazardType } from '../store';
+import { BrainLab } from './BrainLab';
 
 // This component lives outside the Canvas, overlaying HTML
 export const Dashboard = ({ rgbTexture }: { rgbTexture: any }) => {
@@ -13,13 +12,18 @@ export const Dashboard = ({ rgbTexture }: { rgbTexture: any }) => {
     toggleAutonomy, 
     regenerateWorld,
     showSensors,
-    toggleSensors
+    toggleSensors,
+    hazards,
+    toggleHazard,
+    toggleBrain,
+    isBrainOpen
   } = useStore();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
   return (
-    <div className="absolute top-0 left-0 w-full h-full pointer-events-none flex flex-col justify-between p-6">
+    <>
+    <div className="absolute top-0 left-0 w-full h-full pointer-events-none flex flex-col justify-between p-6 z-10">
       
       {/* Top Header */}
       <div className="flex justify-between items-start pointer-events-auto">
@@ -41,7 +45,7 @@ export const Dashboard = ({ rgbTexture }: { rgbTexture: any }) => {
           </div>
         </div>
 
-        <div className="bg-black/80 backdrop-blur-md p-4 rounded-lg border border-gray-700 flex flex-col gap-2">
+        <div className="bg-black/80 backdrop-blur-md p-4 rounded-lg border border-gray-700 flex flex-col gap-2 w-64">
            <div className="flex items-center justify-between gap-4">
              <span className="text-sm font-bold text-gray-300">SYSTEM STATUS</span>
              <span className={`text-xs px-2 py-1 rounded font-bold ${autonomyEnabled ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`}>
@@ -63,34 +67,50 @@ export const Dashboard = ({ rgbTexture }: { rgbTexture: any }) => {
              {autonomyEnabled ? 'STOP AUTONOMY' : 'ENGAGE AUTONOMY'}
            </button>
            
+           <div className="h-px bg-gray-700 my-2"></div>
+           
+           <span className="text-xs font-bold text-gray-400">HAZARDS (REGEN REQUIRED)</span>
+           <div className="grid grid-cols-2 gap-2 mt-1">
+             {(['water', 'walls', 'poles', 'ridges', 'rocks'] as HazardType[]).map(t => (
+               <label key={t} className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer pointer-events-auto">
+                 <input 
+                   type="checkbox" 
+                   checked={hazards[t]} 
+                   onChange={() => toggleHazard(t)}
+                 />
+                 {t.toUpperCase()}
+               </label>
+             ))}
+           </div>
+
            <button 
              onClick={regenerateWorld}
-             className="pointer-events-auto px-4 py-2 mt-1 rounded text-sm font-bold bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+             className="pointer-events-auto px-4 py-2 mt-2 rounded text-sm font-bold bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
            >
              REGEN WORLD
            </button>
 
            <div className="h-px bg-gray-700 my-2"></div>
+
+           <button 
+             onClick={toggleBrain}
+             className={`pointer-events-auto px-4 py-2 mt-2 rounded text-sm font-bold border ${isBrainOpen ? 'bg-amber-600 text-white border-amber-500' : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'}`}
+           >
+             {isBrainOpen ? 'CLOSE BRAIN LAB' : 'OPEN BRAIN LAB'}
+           </button>
            
-           <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer pointer-events-auto">
+           <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer pointer-events-auto mt-2">
              <input type="checkbox" checked={showSensors} onChange={toggleSensors} />
              SHOW SENSOR FEED
            </label>
         </div>
       </div>
 
-      {/* Bottom Sensor Array (The "Cute" UI part) */}
-      {showSensors && (
+      {/* Bottom Sensor Array */}
+      {showSensors && !isBrainOpen && (
          <div className="pointer-events-auto flex gap-4 mt-auto overflow-x-auto pb-2 pl-4">
-            {/* 
-                The 3D HUD renders BEHIND these divs. 
-                We keep the borders and labels, but make the background TRANSPARENT 
-                so we can see the 3D render.
-            */}
-            
             <div className="border-2 border-gray-700/50 rounded w-64 h-40 flex items-center justify-center text-gray-600 font-mono text-xs relative bg-transparent pointer-events-none">
                 <span className="absolute top-2 left-2 text-white bg-black/50 px-1 text-[10px]">RGB_CAM_01</span>
-                {/* Visual guide only, actual content is 3D */}
             </div>
 
             <div className="border-2 border-gray-700/50 rounded w-64 h-40 flex items-center justify-center text-gray-600 font-mono text-xs relative bg-transparent pointer-events-none">
@@ -103,5 +123,8 @@ export const Dashboard = ({ rgbTexture }: { rgbTexture: any }) => {
          </div>
       )}
     </div>
+    
+    <BrainLab />
+    </>
   );
 };
