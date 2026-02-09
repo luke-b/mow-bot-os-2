@@ -1,0 +1,5 @@
+{
+  "name": "MowBot Sim",
+  "description": "A cute, semi-realistic autonomous mower simulator with procedural terrain, grass cutting physics, and robot perception sensors.",
+  "requestFramePermissions": []
+}
