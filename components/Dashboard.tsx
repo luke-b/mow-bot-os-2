@@ -1,8 +1,8 @@
+
 import React, { useRef, useEffect } from 'react';
 import { useStore, HazardType } from '../store';
 import { BrainLab } from './BrainLab';
 
-// This component lives outside the Canvas, overlaying HTML
 export const Dashboard = ({ rgbTexture }: { rgbTexture: any }) => {
   const { 
     robotPosition, 
@@ -16,7 +16,8 @@ export const Dashboard = ({ rgbTexture }: { rgbTexture: any }) => {
     hazards,
     toggleHazard,
     toggleBrain,
-    isBrainOpen
+    isBrainOpen,
+    robotStats
   } = useStore();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,8 +28,8 @@ export const Dashboard = ({ rgbTexture }: { rgbTexture: any }) => {
       
       {/* Top Header */}
       <div className="flex justify-between items-start pointer-events-auto">
-        <div className="bg-black/80 backdrop-blur-md p-4 rounded-lg border border-gray-700 shadow-xl">
-          <h1 className="text-xl font-bold text-amber-500 font-mono tracking-tighter">MOW-BOT OS v2.1</h1>
+        <div className="bg-black/80 backdrop-blur-md p-4 rounded-lg border border-gray-700 shadow-xl w-64">
+          <h1 className="text-xl font-bold text-amber-500 font-mono tracking-tighter">MOW-BOT OS v2.2</h1>
           <div className="flex gap-4 mt-2 text-xs font-mono text-gray-400">
             <div>
               <span className="block text-gray-600">POS X</span>
@@ -43,6 +44,32 @@ export const Dashboard = ({ rgbTexture }: { rgbTexture: any }) => {
               {(robotHeading * 180 / Math.PI).toFixed(1)}°
             </div>
           </div>
+          
+          <div className="grid grid-cols-2 gap-2 mt-4 text-xs font-mono">
+              <div className="bg-gray-800 p-2 rounded flex flex-col items-center">
+                  <span className="text-gray-500 mb-1">PITCH</span>
+                  <span className={Math.abs(robotStats.pitch) > 0.3 ? "text-red-400" : "text-white"}>
+                      {(robotStats.pitch * 180 / Math.PI).toFixed(1)}°
+                  </span>
+              </div>
+              <div className="bg-gray-800 p-2 rounded flex flex-col items-center">
+                  <span className="text-gray-500 mb-1">ROLL</span>
+                  <span className={Math.abs(robotStats.roll) > 0.3 ? "text-red-400" : "text-white"}>
+                      {(robotStats.roll * 180 / Math.PI).toFixed(1)}°
+                  </span>
+              </div>
+          </div>
+          
+          {robotStats.isStuck && (
+              <div className="mt-2 bg-red-900/80 text-red-200 text-center text-xs font-bold py-1 rounded animate-pulse">
+                  ⚠ WARNING: STUCK DETECTED
+              </div>
+          )}
+          {robotStats.collision && (
+              <div className="mt-2 bg-orange-900/80 text-orange-200 text-center text-xs font-bold py-1 rounded">
+                  ⚠ COLLISION
+              </div>
+          )}
         </div>
 
         <div className="bg-black/80 backdrop-blur-md p-4 rounded-lg border border-gray-700 flex flex-col gap-2 w-64">

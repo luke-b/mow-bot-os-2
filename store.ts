@@ -1,5 +1,5 @@
+
 import { create } from 'zustand';
-import { Vector3 } from 'three';
 
 export type HazardType = 'water' | 'walls' | 'poles' | 'ridges' | 'rocks';
 
@@ -9,6 +9,13 @@ export interface Revision {
   code: string;
   status: 'SAFE' | 'ERROR' | 'UNKNOWN';
   note?: string;
+}
+
+interface RobotStats {
+    pitch: number;
+    roll: number;
+    isStuck: boolean;
+    collision: boolean;
 }
 
 interface AppState {
@@ -40,6 +47,9 @@ interface AppState {
   setRobotHeading: (rad: number) => void;
   currentTask: string;
   setCurrentTask: (task: string) => void;
+  
+  robotStats: RobotStats;
+  setRobotStats: (stats: RobotStats) => void;
 
   // World Settings
   grassDensity: number;
@@ -54,11 +64,12 @@ interface AppState {
 }
 
 const DEFAULT_CODE = `// 🧠 Robot Brain Script
-// You have 5ms per tick. Go!
+// 5ms CPU Budget per tick.
 
 let state = {
   mode: 'CRUISE',
-  stuckTimer: 0
+  stuckTimer: 0,
+  backupTimer: 0
 };
 
 function init(api) {
@@ -75,31 +86,28 @@ function step(api, dt) {
   const hazard = sensors.groundType();
   
   // 2. Obstacle Avoidance
-  if (dist < 4.0) {
-    state.mode = 'AVOID';
-    api.console.log("Obstacle detected! " + dist.toFixed(1) + "m");
-  } else if (dist > 6.0 && state.mode === 'AVOID') {
-    state.mode = 'CRUISE';
+  if (state.mode === 'CRUISE') {
+      if (dist < 4.0) {
+        state.mode = 'AVOID';
+        api.console.log("Obstacle detected! " + dist.toFixed(1) + "m");
+      }
+      
+      robot.setSpeed(2.5); // Fast cruise
+      robot.setSteer(Math.sin(t * 0.5) * 0.1); // Gentle wander
+      
+  } else if (state.mode === 'AVOID') {
+      robot.setSpeed(1.0);
+      robot.setSteer(-0.8); // Hard left
+      
+      if (dist > 6.0) state.mode = 'CRUISE';
   }
   
-  // 3. Act based on mode
-  if (state.mode === 'AVOID') {
-    robot.setSpeed(1.0);
-    // Simple bang-bang steering away
-    robot.setSteer(-0.8); 
-  } else {
-    // Cruise behavior: Sine wave wander
-    robot.setSpeed(3.0);
-    robot.setSteer(Math.sin(t * 0.5) * 0.2);
-  }
-  
-  // 4. Safety Check (Water)
+  // 3. Emergency Logic
   if (hazard === 'WATER') {
      robot.stop();
      api.console.log("EMERGENCY STOP: Water!");
   }
   
-  // Debug visualization
   api.debug.text(robot.pose(), state.mode);
 }
 
@@ -137,6 +145,9 @@ export const useStore = create<AppState>((set, get) => ({
   setRobotHeading: (rad) => set({ robotHeading: rad }),
   currentTask: 'IDLE',
   setCurrentTask: (task) => set({ currentTask: task }),
+  
+  robotStats: { pitch: 0, roll: 0, isStuck: false, collision: false },
+  setRobotStats: (stats) => set({ robotStats: stats }),
 
   grassDensity: 0.8,
   setGrassDensity: (v) => set({ grassDensity: v }),
