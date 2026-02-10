@@ -154,7 +154,19 @@ export const Robot = ({ worldData, setRGB, setDepth, setCostMap }: RobotProps) =
         const res = executor.compile(userCode);
         if (!res.success) {
             setExecutionStatus('ERROR');
-            setErrorLog(res.error || "Compilation Failed");
+            const errorMsg = res.error || "Compilation Failed";
+            setErrorLog(errorMsg);
+            
+            // Log Compilation Failure to AI Agent
+            addAiLog({
+                timestamp: Date.now(),
+                event: 'ALERT',
+                kpi: useStore.getState().kpiStats,
+                robotState: useStore.getState().robotStats,
+                watches: useStore.getState().customWatches,
+                message: `COMPILATION ERROR: ${errorMsg}. Requires immediate syntax refinement.`
+            });
+            
         } else {
             // If code changed, force re-init to pick up potentially new zone
             executor['hasInit'] = false; 
@@ -275,14 +287,31 @@ export const Robot = ({ worldData, setRGB, setDepth, setCostMap }: RobotProps) =
             try {
                 const t0 = performance.now();
                 executor.step(dt);
-                if (performance.now() - t0 > 5.0) throw new Error(`Timeout`);
+                if (performance.now() - t0 > 5.0) throw new Error(`CPU Budget Exceeded (5ms)`);
                 
                 safetyTimerRef.current += dt;
                 if (safetyTimerRef.current > 3.0 && executionStatus === 'RUNNING') setExecutionStatus('SAFE');
             } catch (e: any) {
                 setExecutionStatus('ERROR');
-                setErrorLog(e.message || "Runtime Error");
+                const errorMsg = e.message || "Runtime Error";
+                setErrorLog(errorMsg);
                 inputs.throttle = 0; inputs.brake = 1;
+
+                // Log Runtime Failure to AI Agent context to trigger refinement
+                addAiLog({
+                    timestamp: Date.now(),
+                    event: 'STOP',
+                    kpi: { 
+                        startTime: kpiRef.current.startTime,
+                        elapsedTime: now - kpiRef.current.startTime, 
+                        areaMowed: kpiRef.current.area, 
+                        totalTargetArea: useStore.getState().kpiStats.totalTargetArea,
+                        efficiency: (kpiRef.current.area / Math.max(1, now - kpiRef.current.startTime)) * 60
+                    },
+                    robotState: useStore.getState().robotStats,
+                    watches: useStore.getState().customWatches,
+                    message: `CRITICAL FAILURE: ${errorMsg}. Triggers automated refinement loop.`
+                });
             }
 
         } else if (!autonomyEnabled) {
