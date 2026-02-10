@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { useStore } from '../store';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useStore, AiLogEntry } from '../store';
 
 export const BrainLab = () => {
   const { 
@@ -14,10 +15,13 @@ export const BrainLab = () => {
     revertToSafe,
     addRevision,
     setErrorLog,
-    toggleAutonomy
+    toggleAutonomy,
+    telemetryHistory,
+    aiLogs,
+    clearAiLogs
   } = useStore();
 
-  const [activeTab, setActiveTab] = useState<'CODE' | 'API' | 'RUNS'>('CODE');
+  const [activeTab, setActiveTab] = useState<'CODE' | 'API' | 'TELEMETRY' | 'AI AGENT' | 'RUNS'>('CODE');
   const [tempCode, setTempCode] = useState(userCode);
 
   useEffect(() => {
@@ -64,7 +68,7 @@ export const BrainLab = () => {
          <div className="flex items-center gap-4">
             <span className="font-bold text-amber-500 font-mono">BRAIN LAB</span>
             <div className="flex gap-1">
-               {['CODE', 'API', 'RUNS'].map(tab => (
+               {['CODE', 'API', 'TELEMETRY', 'AI AGENT', 'RUNS'].map(tab => (
                  <button 
                    key={tab}
                    onClick={() => setActiveTab(tab as any)}
@@ -142,6 +146,11 @@ export const BrainLab = () => {
                         { sig: 'sensors.groundType()', desc: 'Returns "GROUND", "WATER", or "OBSTACLE"' },
                         { sig: 'sensors.gps()', desc: 'Returns { x, z }' },
                     ]} />
+
+                    <ApiSection title="telemetry" items={[
+                        { sig: 'telemetry.log(key, val)', desc: 'Plot numeric data in Telemetry tab. E.g. log("error", 0.5)' },
+                        { sig: 'telemetry.watch(key, val)', desc: 'Add/Update custom metric on Dashboard and AI Logs' },
+                    ]} />
                     
                     <ApiSection title="world" items={[
                         { sig: 'world.time()', desc: 'Elapsed simulation time (s)' },
@@ -155,6 +164,48 @@ export const BrainLab = () => {
                     ]} />
                 </div>
             </div>
+        )}
+
+        {/* Telemetry Graph */}
+        {activeTab === 'TELEMETRY' && (
+            <div className="flex-1 bg-[#0d0d0d] p-4 flex flex-col">
+                <TelemetryGraph history={telemetryHistory} />
+            </div>
+        )}
+
+        {/* AI Agent Console */}
+        {activeTab === 'AI AGENT' && (
+             <div className="flex-1 bg-[#0d0d0d] flex flex-col">
+                 <div className="h-10 bg-[#111] border-b border-gray-800 flex items-center justify-between px-4">
+                     <span className="text-xs font-mono text-gray-400">CONTEXT LOG (UPDATES EVERY 30S)</span>
+                     <div className="flex gap-2">
+                         <button onClick={clearAiLogs} className="text-[10px] text-gray-500 hover:text-white">CLEAR LOGS</button>
+                         <button onClick={handleStop} className="px-2 py-0.5 bg-red-900/50 text-red-200 text-[10px] border border-red-800 rounded">FORCE STOP MISSION</button>
+                     </div>
+                 </div>
+                 <div className="flex-1 overflow-y-auto p-4 space-y-4 font-mono text-xs">
+                     {aiLogs.length === 0 && <div className="text-gray-600 italic">Waiting for mission data...</div>}
+                     {aiLogs.map((log, i) => (
+                         <div key={i} className="bg-[#050505] border border-gray-800 rounded p-3 relative group">
+                             <div className="text-gray-500 mb-2 flex justify-between">
+                                 <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
+                                 <span className="text-amber-600">[{log.event}]</span>
+                             </div>
+                             <pre className="text-green-500 overflow-x-auto whitespace-pre-wrap font-[inherit]">
+                                 {JSON.stringify({ 
+                                     kpi: log.kpi, 
+                                     robot: { isStuck: log.robotState.isStuck, collision: log.robotState.collision },
+                                     watches: log.watches
+                                 }, null, 2)}
+                             </pre>
+                         </div>
+                     ))}
+                 </div>
+                 <div className="bg-[#1a1a1a] p-2 border-t border-gray-800 text-[10px] text-gray-500 flex justify-between">
+                    <span>AI AGENT STATUS: <span className="text-green-500">LISTENING</span></span>
+                    <span>Use 'telemetry.watch()' to add custom context fields.</span>
+                 </div>
+             </div>
         )}
 
         {/* Runs History */}
@@ -213,3 +264,109 @@ const ApiSection = ({ title, items }: { title: string, items: any[] }) => (
         </ul>
     </div>
 );
+
+// Canvas based simple line chart
+const TelemetryGraph = ({ history }: { history: any[] }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const w = canvas.width;
+        const h = canvas.height;
+
+        // Clear
+        ctx.fillStyle = '#0d0d0d';
+        ctx.fillRect(0, 0, w, h);
+
+        if (history.length < 2) {
+            ctx.fillStyle = '#444';
+            ctx.font = '12px monospace';
+            ctx.fillText("WAITING FOR DATA...", w/2 - 50, h/2);
+            return;
+        }
+
+        // Identify keys (exclude time)
+        const keys = Object.keys(history[history.length - 1]).filter(k => k !== 'time');
+        
+        // Setup colors
+        const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899'];
+        
+        // Find min/max for scaling per key (simple normalization)
+        // Actually, to keep it readable, let's group widely different scales?
+        // For simple debugging, mapping everything to 0..1 relative to its own min/max is confusing.
+        // Let's just fit all visible data into the window, but draw them separately? No, messy.
+        // Let's normalize each series to the height of the canvas so they overlay.
+        
+        const ranges: Record<string, {min: number, max: number}> = {};
+        keys.forEach(k => {
+            let min = Infinity, max = -Infinity;
+            for(let i=0; i<history.length; i++) {
+                const v = history[i][k];
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+            if (min === max) { min -= 1; max += 1; }
+            ranges[k] = { min, max };
+        });
+
+        // Draw Grid
+        ctx.strokeStyle = '#222';
+        ctx.beginPath();
+        for(let i=0; i<w; i+=50) { ctx.moveTo(i, 0); ctx.lineTo(i, h); }
+        for(let i=0; i<h; i+=50) { ctx.moveTo(0, i); ctx.lineTo(w, i); }
+        ctx.stroke();
+
+        // Draw Lines
+        keys.forEach((key, idx) => {
+            const color = colors[idx % colors.length];
+            const range = ranges[key];
+            const span = range.max - range.min;
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            history.forEach((frame, i) => {
+                const x = (i / (history.length - 1)) * w;
+                // Normalize y to 10% padding top/bottom
+                const normVal = (frame[key] - range.min) / span;
+                const y = h - (h * 0.1) - (normVal * (h * 0.8));
+                
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        });
+
+    }, [history]);
+
+    // Render Legend
+    const keys = history.length > 0 ? Object.keys(history[history.length - 1]).filter(k => k !== 'time') : [];
+    const colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899'];
+
+    return (
+        <div className="flex-1 flex flex-col h-full">
+            <div className="flex flex-wrap gap-4 mb-2 text-xs font-mono border-b border-gray-800 pb-2">
+                {keys.map((k, i) => {
+                   const color = colors[i % colors.length];
+                   const val = history[history.length-1][k].toFixed(2);
+                   return (
+                       <div key={k} className="flex items-center gap-1.5">
+                           <span className="w-2 h-2 rounded-full" style={{background: color}}></span>
+                           <span className="text-gray-400 uppercase">{k}</span>
+                           <span className="text-white font-bold">{val}</span>
+                       </div>
+                   );
+                })}
+                {keys.length === 0 && <span className="text-gray-500">Run code to see telemetry...</span>}
+            </div>
+            <div className="flex-1 bg-[#050505] rounded border border-gray-800 relative overflow-hidden">
+                <canvas ref={canvasRef} width={800} height={300} className="w-full h-full object-contain" />
+            </div>
+        </div>
+    );
+}

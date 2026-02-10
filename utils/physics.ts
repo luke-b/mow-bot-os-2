@@ -89,6 +89,15 @@ export class VehiclePhysics {
     }
   }
 
+  teleport(pos: Vector3, heading: number) {
+      this.position.copy(pos);
+      this.quaternion.setFromAxisAngle(new Vector3(0, 1, 0), heading);
+      this.velocity.set(0, 0, 0);
+      this.angularVelocity.set(0, 0, 0);
+      this.speed = 0;
+      this.isStuck = false;
+  }
+
   update(dt: number, inputs: VehicleInputs, world: WorldData) {
     this.force.set(0, -9.81 * this.config.mass, 0); // Reset forces to Gravity
     this.torque.set(0, 0, 0);
@@ -203,7 +212,23 @@ export class VehiclePhysics {
       }
     });
 
-    // 2. Obstacle Collision
+    // 2. Vegetable Drag (Grass Resistance)
+    // Fd = Cd * Density * H^2 * v
+    if (groundedCount > 0) {
+        // Check center of robot for grass height
+        const grassH = world.getGrassHeight ? world.getGrassHeight(this.position.x, this.position.z) : 1.0;
+        // Cd constant tuned for feel
+        const dragCoeff = 10.0; 
+        const speed = this.velocity.length();
+        
+        if (speed > 0.1 && grassH > 0.1) {
+            const dragMag = dragCoeff * (grassH * grassH) * speed;
+            const dragForce = this.velocity.clone().normalize().multiplyScalar(-dragMag);
+            this.force.add(dragForce);
+        }
+    }
+
+    // 3. Obstacle Collision
     this.collisionImpact *= 0.9;
     world.obstacles.forEach(obs => {
         const toObs = this.position.clone().sub(obs.position);
@@ -235,7 +260,7 @@ export class VehiclePhysics {
         }
     });
 
-    // 3. Integration
+    // 4. Integration
     const accel = this.force.divideScalar(this.config.mass);
     this.velocity.add(accel.multiplyScalar(dt));
     

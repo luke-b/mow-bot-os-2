@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Environment, Sky, Hud, OrthographicCamera, Plane, PerspectiveCamera } from '@react-three/drei';
+
+import React, { useState, useRef, useMemo } from 'react';
+import { Canvas, useThree, useFrame, createPortal } from '@react-three/fiber';
+import { OrbitControls, Environment, Sky, Plane, PerspectiveCamera } from '@react-three/drei';
+import { Scene as ThreeScene, OrthographicCamera as ThreeOrthographicCamera } from 'three';
 import { Terrain, WorldData } from './Terrain';
 import { Robot } from './Robot';
 import { Dashboard } from './Dashboard';
@@ -16,11 +18,12 @@ export const Scene = () => {
   
   const showSensors = useStore(s => s.showSensors);
 
-  const initialCamPos: [number, number, number] = [-32, 3, -34];
-  const initialTarget: [number, number, number] = [-32, 1, -32];
+  // Moved camera up significantly to avoid clipping into hills on load
+  const initialCamPos: [number, number, number] = [-30, 15, -30];
+  const initialTarget: [number, number, number] = [0, 0, 0];
 
   return (
-    <div className="w-full h-screen bg-gray-900">
+    <div className="relative w-full h-screen bg-gray-900">
       <Canvas shadows dpr={[1, 2]} gl={{ antialias: true }}>
         {/* Environment */}
         <Sky sunPosition={[100, 20, 100]} />
@@ -48,9 +51,20 @@ export const Scene = () => {
           setCostMap={setCostTex}
         />
 
-        {/* Camera Control */}
+        {/* Camera Control - Bound to body to allow interaction through UI overlays */}
+        {/* makeDefault ensures this is the global camera for R3F, used by OrbitControls */}
         <PerspectiveCamera makeDefault position={initialCamPos} fov={60} />
-        <OrbitControls makeDefault target={initialTarget} minPolarAngle={0} maxPolarAngle={Math.PI / 2.2} />
+        
+        {/* Removed domElement binding to allow R3F to handle events naturally from the canvas container */}
+        <OrbitControls 
+          makeDefault
+          target={initialTarget} 
+          minPolarAngle={0} 
+          maxPolarAngle={Math.PI / 2.2} 
+          enableZoom={true} 
+          maxDistance={150}
+          minDistance={1}
+        />
 
         {/* Heads Up Display for Sensors */}
         {showSensors && rgbTex && (
@@ -62,9 +76,33 @@ export const Scene = () => {
   );
 };
 
-// Extracted HUD component to access useThree
+// Manual HUD Implementation using explicit Portal and Render Loop
+// This avoids the 'makeDefault' conflict between Drei HUD and OrbitControls
 const HudRender = ({ rgbTex, depthTex, costTex }: { rgbTex: any, depthTex: any, costTex: any }) => {
-    const { size } = useThree();
+    const { size, gl } = useThree();
+    
+    // Create separate scene and camera for HUD
+    const [hudScene] = useState(() => new ThreeScene());
+    const [hudCam] = useState(() => new ThreeOrthographicCamera(-1, 1, 1, -1, 0.1, 100));
+
+    // Keep HUD camera synced with screen size
+    useMemo(() => {
+        hudCam.left = -size.width / 2;
+        hudCam.right = size.width / 2;
+        hudCam.top = size.height / 2;
+        hudCam.bottom = -size.height / 2;
+        hudCam.updateProjectionMatrix();
+        hudCam.position.set(0, 0, 10);
+    }, [size, hudCam]);
+
+    // Priority 1: Runs AFTER the main scene render (Priority 0)
+    useFrame(() => {
+        gl.autoClear = false; // Don't wipe the main scene
+        gl.clearDepth();      // Clear depth so HUD sits on top
+        gl.render(hudScene, hudCam);
+        gl.autoClear = true;  // Reset for next frame
+    }, 1);
+
     const panelW = 256;
     const panelH = 160; 
     const gap = 16;
@@ -73,16 +111,8 @@ const HudRender = ({ rgbTex, depthTex, costTex }: { rgbTex: any, depthTex: any, 
     const xBase = -size.width / 2;
     const yBase = -size.height / 2;
 
-    return (
-        <Hud renderPriority={1}>
-             <OrthographicCamera 
-                makeDefault 
-                position={[0, 0, 10]} 
-                left={-size.width / 2} 
-                right={size.width / 2} 
-                top={size.height / 2} 
-                bottom={-size.height / 2}
-             />
+    return createPortal(
+        <group>
              <group position={[xBase + startX, yBase + startY, 0]}>
                 <Plane args={[panelW, panelH]}> 
                     <meshBasicMaterial map={rgbTex} />
@@ -105,6 +135,7 @@ const HudRender = ({ rgbTex, depthTex, costTex }: { rgbTex: any, depthTex: any, 
                     <meshBasicMaterial color="#004400" wireframe transparent opacity={0.3} />
                 </Plane>
              </group>
-        </Hud>
+        </group>,
+        hudScene
     );
 }
